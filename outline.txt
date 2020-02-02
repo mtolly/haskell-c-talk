@@ -1,0 +1,154 @@
+OUTLINE
+
+Intro
+- The open source C library ecosystem, esp. audio/video stuff
+- C as lingua franca, comparison of approaches different langs take to talk to C
+Crash course in C and machine code
+- What are machine code and assembly, what do they look like
+- C is organized into functions, how do functions work in machine code
+- Calling conventions
+The Haskell FFI
+- Basic import and use of a C function via raw FFI
+- Using pointers, doing memory management with `Foreign`
+- Extra stuff to know (IO/unsafePerformIO, C types, newtypes)
+c2hs / hsc2hs
+- Including a header, writing a (typechecked) function import
+- Mapping types to pointers, working with structs and enums
+- Wrapper functions attached to inputs and outputs
+- Show examples of bindings I've done: tinyfiledialogs, rubberband, stbir, jammittools (ima4, pdfgen), conduit-audio (lame), onyx (kakasi, arktool, stb_dxt, win/mac apis)
+Installing and linking to libraries
+- Putting .c (or .cpp, .m) files directly into cabal package; stb single file libraries
+- Installing with linux package managers, mac homebrew, windows msys2 + pacman
+- Static and dynamic linking, what the formats are on each platform
+- Finding a library via extra-libraries, manual include and lib dirs
+- Finding a library via pkg-config
+Packaging to end users
+- Windows .exe just finds .dlls next to it, a zip with exe+dlls works
+- Can optionally make an installer, `nsis` DSL demo
+- .app bundles on Mac; simple Info.plist and folder structure
+- dylibbundler to find and include libraries, and change the executable's references
+- I don't know anything about Linux packaging lol
+
+=========================
+
+Connecting Haskell to C
+Michael Tolly
+
+Why would you need C/C++
+- The free software C library ecosystem: packages in apt/brew/yum/whatever starting with "lib"
+- Audio/video stuff tends to be in C because of real-time requirements
+- Lot of utilities for game development are C++, since that's what professional game dev is in
+
+C the lingua franca
+- Almost every other language has a way to connect to C code
+- Two approaches
+  - Extension API: write C code to connect a C lib to an interpreter
+  - Foreign function interface: import C stuff and do the translation work in the host language
+
+This talk
+- How C becomes machine code (briefly)
+- The Haskell FFI
+- Working with C headers
+- How to locate code/libraries
+- How to package a program to users
+
+=========================
+
+Very brief crash course in how C becomes machine code
+- Machine code is the compact binary format a processor reads instructions from: (show example, screenshot of hex editor with some instructions pointed out)
+- Your desktop/laptop probably runs the "64-bit Intel-compatible" instruction set architecture
+- Most instructions are very simple, like "add two numbers", "load a number from this address"
+- The interesting one is a jump or branch instruction, basically a "goto"
+- All structures in machine code are built out of these branch instructions
+
+C constructs and their translations
+- These will be shown in "assembly", a simple text format for generating machine code
+- If then/else: (show example)
+- While loop: (show example)
+
+C functions
+- A "function" is a block of code that:
+  - you can pass arguments to, and then jump to
+  - it runs its code
+  - then it jumps back to you, and possibly gives something back
+- In machine code, this means you need some rules:
+  - where are the arguments stored, where does the return value go
+  - the caller needs to provide a "return address" for the function to jump back to
+  - who is responsible for which registers
+- This is a "calling convention"
+
+Wrapping it up
+- So, calling a C function just means generating code that
+  - puts arguments where they should go
+  - puts the return address where it should go
+  - jumps to the function's location
+  - waits for it to jump back
+  - reads a return value if there is one
+- The FFI gives us this same ability from Haskell
+
+=========================
+
+First example
+
+  // .c
+  int doubleMe(int x) {
+    return x * 2;
+  }
+
+  -- .hs
+  foreign import ccall "doubleMe"
+    doubleMe :: CInt -> IO CInt
+
+  main :: IO ()
+  main = doubleMe 25 >>= print
+
+  $ ghc main.hs double.c
+  [1 of 1] Compiling Main             ( main.hs, main.o )
+  Linking main ...
+  $ ./main
+  50
+
+Parts of an import
+
+  - `foreign import`: `export` also available
+  - `ccall`: the calling convention
+  - string literal: the C function name
+    - same as Haskell name if not given
+  - Haskell name and type
+    - type has to follow certain rules
+    - must match the C type, used to generate the calling code
+
+Example with pointers
+
+  // .c
+  void doubleMe(int input, int *output) {
+    *output = input * 2;
+  }
+
+  -- .hs
+  foreign import ccall "doubleMe"
+    c_doubleMe :: CInt -> Ptr CInt -> IO ()
+
+  doubleMe :: CInt -> IO CInt
+  doubleMe input = alloca $ \p -> do
+    c_doubleMe input p
+    peek p
+
+Translation options and tools
+
+  - `Foreign` and `Foreign.C`
+    - `Ptr`, `FunPtr` (wrapper), `ForeignPtr`
+    - `Storable` class
+    - Arrays
+    - C strings (char*, wchar_t*)
+  - Can leave off `IO`, just like `unsafePerformIO`
+
+=========================
+
+Reading from C headers
+- Necessary for working with many C libraries
+  - enums, structs, #define constants/macros, etc.
+- Not included in the FFI
+- Tools on top that preprocess Haskell files to provide this
+  - hsc2hs
+  - c2hs
