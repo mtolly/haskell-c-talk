@@ -1,0 +1,15 @@
+cabal-version: >= 1.12
+
+name:           c2hs-demo
+version:        0.1.0.0
+build-type:     Simple
+
+executable c2hs-demo
+  main-is: Main.hs
+  build-depends:
+    base
+  default-language: Haskell2010
+  build-tools: c2hs
+  include-dirs: cbits
+  c-sources:
+    cbits/stuff.c
